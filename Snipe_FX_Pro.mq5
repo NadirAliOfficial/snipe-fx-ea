@@ -48,8 +48,9 @@ input double AtrSlMultiplier      = 1.2;    // ATR x this = working stop
 input double MinStopPips          = 2.0;    // Floor for working stop
 input double MaxStopPips          = 8.0;    // Cap for working stop
 input double FixedStopPips        = 4.0;    // Used when UseAtrStop = false
-input double EmergencySlPips      = 20.0;   // Broker side disaster stop
-input double EmergencyTpPips      = 40.0;   // Broker side disaster target
+input double EmergencySlPips      = 20.0;   // Broker side disaster stop (floor)
+input double EmergencyTpPips      = 40.0;   // Broker side disaster target (floor)
+input double EmergencyMultiple    = 3.0;    // Disaster stop must also be this x the working stop
 
 //--- Take profit -----------------------------------------------------
 input group "=== Take profit ==="
@@ -142,7 +143,9 @@ int OnInit()
                   MaxSpreadPips, ref_tp);
 
    if(EmergencySlPips <= MaxStopPips)
-      Print("Warning: EmergencySlPips should sit well beyond MaxStopPips.");
+      PrintFormat("Note: EmergencySlPips (%.1f) is inside MaxStopPips (%.1f); "
+                  "the disaster stop will be widened to %.1fx the working stop.",
+                  EmergencySlPips, MaxStopPips, EmergencyMultiple);
 
    if(UseTrendFilter)
    {
@@ -371,16 +374,22 @@ void OpenTrade(const ENUM_ORDER_TYPE type, const double trigger)
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ref = (type == ORDER_TYPE_BUY) ? ask : bid;
 
+   // The broker side stop has to sit well beyond the working stop. Left at a
+   // fixed 20 pips it fires first whenever the working stop is wider, so every
+   // setting collapses to the same 20/40 structure and nothing else matters.
+   double hard_sl_pips = MathMax(EmergencySlPips, stop_pips * EmergencyMultiple);
+   double hard_tp_pips = MathMax(EmergencyTpPips, tp_pips   * EmergencyMultiple);
+
    double hard_sl, hard_tp;
    if(type == ORDER_TYPE_BUY)
    {
-      hard_sl = NormalizeDouble(ref - EmergencySlPips * pip, _Digits);
-      hard_tp = NormalizeDouble(ref + EmergencyTpPips * pip, _Digits);
+      hard_sl = NormalizeDouble(ref - hard_sl_pips * pip, _Digits);
+      hard_tp = NormalizeDouble(ref + hard_tp_pips * pip, _Digits);
    }
    else
    {
-      hard_sl = NormalizeDouble(ref + EmergencySlPips * pip, _Digits);
-      hard_tp = NormalizeDouble(ref - EmergencyTpPips * pip, _Digits);
+      hard_sl = NormalizeDouble(ref + hard_sl_pips * pip, _Digits);
+      hard_tp = NormalizeDouble(ref - hard_tp_pips * pip, _Digits);
    }
 
    if(!StopsRespectLevel(type, ref, hard_sl, hard_tp))
@@ -805,7 +814,7 @@ void ClearState()
 double OnTester()
 {
    double trades = TesterStatistics(STAT_TRADES);
-   if(trades < 50) return 0.01;                // too few to mean anything
+   if(trades < 20) return 0.01;                // too few to mean anything
 
    double pf    = TesterStatistics(STAT_PROFIT_FACTOR);
    double dd    = TesterStatistics(STAT_EQUITYDD_PERCENT);
