@@ -1,0 +1,16 @@
+UseBarAnchor=1||1||1||1||Y
+AnchorBars=3||2||3||11||Y
+RewardRatio=2.0||1.0||1.0||3.0||Y
+TrendTimeframe=1
+MaxSpreadPips=0.8
+DistancePips=2.0
+MinStopPips=3.0
+MaxStopPips=8.0
+ReverseEntry=false
+UseTrendFilter=true
+UseVolFilter=false
+UseAtrStop=true
+UseRiskRewardTp=true
+UseBreakEven=false
+UseTrailing=false
+LotSize=0.01

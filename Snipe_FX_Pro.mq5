@@ -23,6 +23,13 @@ input group "=== Entry ==="
 input double DistancePips         = 2.0;    // Virtual stop distance from price
 input int    PendingExpirySec     = 5;      // Virtual pending lifetime (sec)
 input double MaxSpreadPips        = 1.5;    // Max spread allowed to arm
+input bool   ReverseEntry         = false;  // Fade the break instead of following it
+input int    LossCooldownSec      = 0;      // Pause after a losing trade (sec, 0 = off)
+input int    MaxConsecLosses      = 0;      // Pause the day after N losses in a row (0 = off)
+input bool   UseBarAnchor         = false;  // Break a real level instead of a rolling price
+input int    AnchorBars           = 3;      // Bars whose high/low form that level
+input int    AnchorTfIndex        = 0;      // 0=M1 1=M5 2=M15 3=M30 4=H1 (level timeframe)
+input int    TrendTfIndex         = -1;     // -1 = use TrendTimeframe, else 0=M1 1=M5 2=M15 3=M30 4=H1
 
 //--- Direction filter ------------------------------------------------
 input group "=== Direction filter ==="
@@ -100,6 +107,11 @@ double   day_start_bal  = 0.0;
 int      day_trades     = 0;
 bool     day_blocked    = false;
 
+int      consec_losses  = 0;
+datetime cooldown_until = 0;
+datetime last_anchor_bar = 0;
+double   last_balance   = 0.0;
+
 double   closed_cache   = 0.0;
 datetime closed_cache_t = 0;
 bool     closed_dirty   = true;
@@ -134,8 +146,8 @@ int OnInit()
 
    if(UseTrendFilter)
    {
-      ema_fast_h = iMA(_Symbol, TrendTimeframe, FastEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
-      ema_slow_h = iMA(_Symbol, TrendTimeframe, SlowEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+      ema_fast_h = iMA(_Symbol, TrendTf(), FastEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+      ema_slow_h = iMA(_Symbol, TrendTf(), SlowEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
       if(ema_fast_h == INVALID_HANDLE || ema_slow_h == INVALID_HANDLE)
       {
          Print("Init failed: EMA handle error ", GetLastError());
@@ -145,7 +157,7 @@ int OnInit()
 
    if(UseAtrStop || UseVolFilter)
    {
-      atr_h = iATR(_Symbol, TrendTimeframe, AtrPeriod);
+      atr_h = iATR(_Symbol, TrendTf(), AtrPeriod);
       if(atr_h == INVALID_HANDLE)
       {
          Print("Init failed: ATR handle error ", GetLastError());
@@ -191,8 +203,11 @@ void OnTick()
    if(current_ticket != 0 || virtual_sl != 0.0)
    {
       closed_dirty = true;      // the broker closed it (emergency SL/TP)
+      RecordOutcome();
       ClearState();
    }
+
+   if(cooldown_until > 0 && TimeCurrent() < cooldown_until) return;
 
    if(day_blocked)                 return;
    if(!DailyLossOk())              { BlockDay("daily loss limit reached"); return; }
@@ -204,11 +219,49 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+//| Outcome tracking.                                                |
+//|                                                                  |
+//| Re-arming straight after a stop out is what produced runs of 25  |
+//| losses: in a trend the EA kept buying every small bounce and kept |
+//| getting stopped. A cooldown breaks that loop.                     |
+//+------------------------------------------------------------------+
+void RecordOutcome()
+{
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(last_balance == 0.0) { last_balance = bal; return; }
+
+   bool lost = (bal < last_balance);
+   last_balance = bal;
+
+   if(!lost) { consec_losses = 0; return; }
+
+   consec_losses++;
+
+   if(LossCooldownSec > 0)
+      cooldown_until = TimeCurrent() + LossCooldownSec;
+
+   if(MaxConsecLosses > 0 && consec_losses >= MaxConsecLosses)
+   {
+      BlockDay(StringFormat("%d losses in a row", consec_losses));
+      consec_losses = 0;
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Entry                                                            |
 //+------------------------------------------------------------------+
 void ArmVirtualOrders()
 {
-   if(v_buy_price > 0.0 || v_sell_price > 0.0)
+   if(UseBarAnchor)
+   {
+      // Refresh only when a new bar closes. Re-arming every few seconds from a
+      // rolling price means breaking out of nothing, which is what produced
+      // hundreds of trades a day against a level that did not exist.
+      datetime bar = iTime(_Symbol, AnchorTf(), 0);
+      if(bar == last_anchor_bar && (v_buy_price > 0.0 || v_sell_price > 0.0)) return;
+      last_anchor_bar = bar;
+   }
+   else if(v_buy_price > 0.0 || v_sell_price > 0.0)
    {
       if(TimeCurrent() - v_place_time >= PendingExpirySec)
       {
@@ -228,12 +281,63 @@ void ArmVirtualOrders()
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-   if(bias >= 0)
+   // When fading, the trend filter has to be read the other way round: a break
+   // upward is only worth selling if the larger trend is still down.
+   int arm = ReverseEntry ? -bias : bias;
+
+   if(arm >= 0)
       v_buy_price = NormalizeDouble(ask + DistancePips * pip, _Digits);
-   if(bias <= 0)
+   if(arm <= 0)
       v_sell_price = NormalizeDouble(bid - DistancePips * pip, _Digits);
 
    v_place_time = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Highest high and lowest low of the last AnchorBars closed bars.  |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES TfFromIndex(const int idx)
+{
+   switch(idx)
+   {
+      case 1:  return PERIOD_M5;
+      case 2:  return PERIOD_M15;
+      case 3:  return PERIOD_M30;
+      case 4:  return PERIOD_H1;
+      default: return PERIOD_M1;
+   }
+}
+
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES TrendTf()
+{
+   return (TrendTfIndex < 0) ? TrendTimeframe : TfFromIndex(TrendTfIndex);
+}
+
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES AnchorTf()
+{
+   switch(AnchorTfIndex)
+   {
+      case 1:  return PERIOD_M5;
+      case 2:  return PERIOD_M15;
+      case 3:  return PERIOD_M30;
+      case 4:  return PERIOD_H1;
+      default: return PERIOD_M1;
+   }
+}
+
+//+------------------------------------------------------------------+
+bool AnchorRange(double &hi, double &lo)
+{
+   int n = MathMax(AnchorBars, 1);
+   double h[], l[];
+   if(CopyHigh(_Symbol, AnchorTf(), 1, n, h) != n) return false;
+   if(CopyLow (_Symbol, AnchorTf(), 1, n, l) != n) return false;
+
+   hi = h[ArrayMaximum(h)];
+   lo = l[ArrayMinimum(l)];
+   return (hi > 0.0 && lo > 0.0 && hi > lo);
 }
 
 //+------------------------------------------------------------------+
@@ -244,10 +348,13 @@ void CheckVirtualTrigger()
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
+   // ReverseEntry fades the break instead of following it. A 2 pip move on M1
+   // gold is noise, and the tester shows the break-following version paying the
+   // spread on every trade with nothing to offset it.
    if(v_buy_price > 0.0 && ask >= v_buy_price)
-      OpenTrade(ORDER_TYPE_BUY, v_buy_price);
+      OpenTrade(ReverseEntry ? ORDER_TYPE_SELL : ORDER_TYPE_BUY, v_buy_price);
    else if(v_sell_price > 0.0 && bid <= v_sell_price)
-      OpenTrade(ORDER_TYPE_SELL, v_sell_price);
+      OpenTrade(ReverseEntry ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, v_sell_price);
 }
 
 //+------------------------------------------------------------------+
@@ -507,6 +614,8 @@ void ResetDayIfNeeded()
    day_start_bal = AccountInfoDouble(ACCOUNT_BALANCE);
    day_trades    = 0;
    day_blocked   = false;
+   consec_losses = 0;
+   cooldown_until = 0;
    closed_cache  = 0.0;
    closed_dirty  = true;
 
@@ -681,5 +790,32 @@ void ClearState()
    GlobalVariableDel(gv_prefix + "entry");
    GlobalVariableDel(gv_prefix + "ticket");
    GlobalVariableDel(gv_prefix + "be");
+}
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Optimization score.                                              |
+//|                                                                  |
+//| Win rate on its own is a trap: a tiny target against a wide stop |
+//| wins most trades and still empties the account, which is exactly |
+//| what the original EA did at 63%. So a pass only scores if it is  |
+//| actually profitable, and among profitable passes the highest win |
+//| rate wins. Optimize with criterion 6 (custom max) to use it.     |
+//+------------------------------------------------------------------+
+double OnTester()
+{
+   double trades = TesterStatistics(STAT_TRADES);
+   if(trades < 50) return 0.01;                // too few to mean anything
+
+   double pf    = TesterStatistics(STAT_PROFIT_FACTOR);
+   double dd    = TesterStatistics(STAT_EQUITYDD_PERCENT);
+   double wins  = TesterStatistics(STAT_PROFIT_TRADES);
+   double wr    = (wins / trades) * 100.0;
+
+   // Never return 0: MetaTrader drops those passes from the report entirely,
+   // and a losing pass is still information worth seeing.
+   if(pf <= 1.0)   return pf;                  // 0 .. 1  = unprofitable
+   if(dd  > 25.0)  return 1.0 + pf * 0.01;     // profitable but unusable
+   return 100.0 + wr;                          // profitable: rank by win rate
 }
 //+------------------------------------------------------------------+

@@ -1,0 +1,15 @@
+ReverseEntry=0||0||1||1||Y
+RewardRatio=0.5||0.3||0.2||0.9||Y
+MaxSpreadPips=0.8||0.4||0.4||0.8||Y
+DistancePips=2.0
+MinStopPips=3.0
+MaxStopPips=8.0
+UseTrendFilter=true
+UseVolFilter=false
+UseAtrStop=true
+UseRiskRewardTp=true
+UseBreakEven=false
+UseTrailing=false
+FastEmaPeriod=8
+SlowEmaPeriod=21
+LotSize=0.01
