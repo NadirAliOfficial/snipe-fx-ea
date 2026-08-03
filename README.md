@@ -155,6 +155,51 @@ to offset the spread, so tightening filters only shrinks the loss toward zero.
 A strategy with a real edge shows variance across its parameter surface. This one
 shows a flat line.
 
+
+### Full test log — what was tried and what it did
+
+All on XAUUSD, real ticks, MetaQuotes-Demo, via [mt5-cli](https://github.com/NadirAliOfficial/mt5-cli).
+
+| change | profit factor | note |
+|---|---|---|
+| Original EA (client's) | 0.34 | 45.26% drawdown |
+| Rebuild, rolling 2 pip trigger | 0.37 | |
+| Trend filter on M1 | 0.40 | filter helps slightly |
+| Reverse / fade the break | 0.12 | far worse, ruled out |
+| Bar anchored levels | 0.48 | fewer, better trades |
+| Trend filter on M5 | 0.63 | |
+| Wide stops after fixing the emergency stop bug | 0.74 | |
+| Stop 220 / reward 2.8, one week | 1.45 | 27 trades, curve fit |
+| Stop 220 / reward 2.0, June | 1.24 | 177 trades |
+| **Same config, July (unseen)** | **0.84** | **does not generalise** |
+
+### Why it cannot be fixed by tuning
+
+At reward ratio 0.15 the stop is 180 pips and the target 27, so barrier geometry
+predicts roughly an 87% win rate. Measured: **53%**.
+
+| reward ratio | geometry predicts | measured | PF |
+|---|---|---|---|
+| 0.15 | ~87% | 53.1% | 0.94 |
+| 0.25 | ~80% | 49.1% | 0.97 |
+| 0.35 | ~74% | 46.2% | 0.98 |
+
+Roughly 30 points below random, consistently. That also explains why reversing the
+entry made things worse rather than better: entering **at market the moment price
+has moved 2 pips** takes the worst fill of the micro cycle in *both* directions.
+It is an execution defect, not a directional one.
+
+Fixing it means entering passively with a limit order at a level, instead of
+chasing a break at market. That is a different strategy, not a parameter.
+
+### Bug found during testing
+
+`EmergencySlPips` was a flat 20 pips on the broker side, so any working stop wider
+than 20 never executed — the broker closed first. Every stop and reward setting
+above 20 pips collapsed to the same 20/40 structure, which is why entire parameter
+sweeps returned byte identical results. Fixed: the disaster stop is now the wider
+of `EmergencySlPips` and `EmergencyMultiple` x the working stop.
+
 ### What that means
 
 Arming a virtual buy stop and a virtual sell stop 2 pips either side of price is
