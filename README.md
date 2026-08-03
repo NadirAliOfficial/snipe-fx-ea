@@ -4,29 +4,48 @@ Rebuild of a tick scalping EA that used virtual (in memory) stop orders and virt
 
 ## Result
 
-Both EAs, same symbol, same two months, same 100% real tick data.
+Four months continuous, XAUUSD, 100% real ticks, April to July 2026.
 
 | | original | rebuilt |
 |---|---|---|
-| **Win rate** | **72.63%** | 37.17% |
-| **Net profit** | **−9 961.20** | **+375.58** |
+| Win rate | 72.63% | 37.16% |
+| **Net profit** | **−9 961** *(2 months)* | **+774.00** |
 | Profit factor | 0.61 | **1.14** |
-| Max equity drawdown | **99.61%** | **2.40%** |
-| Trades | 69 367 | 226 |
-| Average win / average loss | — | 36.08 / −18.70 |
+| Max equity drawdown | **99.61%** | **4.20%** |
+| Sharpe | — | **2.27** |
+| Average win / average loss | — | 36.13 / −18.79 |
 
-The original wins 72.63% of its trades and loses 99.61% of the account. That single
-line is the whole lesson: win rate is not profitability. The rebuild wins less than
-half as often and finishes ahead, because the average win is roughly twice the
-average loss instead of a fifth of it.
+Settings: `Snipe_FX_Pro_recommended.set`.
 
-Recommended settings: `Snipe_FX_Pro_recommended.set`.
+## Win rate is not profitability
 
-**Honest scope.** 226 trades over two months is modest evidence, and the settings were
-chosen partly on June data. Tested on July alone, which it had never seen, it comes out
-at profit factor 0.99 — flat, not profitable. Treat this as a system that has stopped
-destroying capital and shows a small edge, not as a proven money maker. Forward test on
-demo before risking anything.
+The clearest evidence this project produced. Same EA, same four months, same data.
+The only difference is the reward ratio:
+
+| | tuned for win rate | tuned for expectancy |
+|---|---|---|
+| **Win rate** | **75.88%** | 37.16% |
+| **Net profit** | **−597.76** | **+774.00** |
+| Profit factor | 0.96 | 1.14 |
+| Max drawdown | 9.75% | 4.20% |
+| Sharpe | −1.92 | 2.27 |
+
+A 75.88% win rate loses money. A 37.16% win rate makes money. Win rate is set
+almost entirely by where you put the target relative to the stop — put the target
+close and you win most trades by construction, and lose more on each one than you
+made on the last three.
+
+The original EA is the same lesson: **72.63% of its trades won, and it lost 99.61%
+of the account.**
+
+Win rate held at 74–77% in every period tested, including months the settings had
+never seen. Profitability did not follow it once. It is a stable number that tells
+you nothing.
+
+**Honest scope.** The recommended settings are profitable over the four months as a
+whole and in three of four months individually (April alone is −183). 479 trades is
+reasonable but not conclusive evidence, and the settings were chosen with June and
+July visible. Forward test on demo before risking money.
 
 **File:** `Snipe_FX_Pro.mq5` — MT5 only (MQL5, build 2300+ for `input group`).
 
