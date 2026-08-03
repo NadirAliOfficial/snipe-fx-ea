@@ -103,6 +103,74 @@ DailyLossPercent     5.0       MaxTradesPerDay       0 (unlimited)
 On XAUUSD one pip = 0.10. Confirm `pip=` in the journal line printed at startup before running
 on any other symbol.
 
+---
+
+## Test results on real tick data
+
+Everything below was produced with [mt5-cli](https://github.com/NadirAliOfficial/mt5-cli)
+against MetaTrader's own strategy tester. No figure is recalculated here.
+
+### Generated ticks lie
+
+The same build, same settings, tested twice — the only difference being whether
+MetaTrader had genuine tick data for the period:
+
+| | generated ticks | real ticks |
+|---|---|---|
+| Profit factor | 1.97 | **0.34** |
+| Win rate | 70.5% | **36.6%** |
+| Net | +252 | **−5 258** |
+| Max equity drawdown | 0.13% | **52.58%** |
+| Trades | 1 345 | 23 768 |
+
+Any backtest of this strategy that does not report `100% real ticks` is fiction.
+A 5-pip stop cannot be modelled from M1 bars.
+
+### The entry has no edge
+
+36 parameter combinations, XAUUSD M1, 2026.07.13 → 2026.07.20, real ticks:
+
+```
+        profit      PF    trades   eqDD%   MaxSpreadPips   MinAtrPips   RewardRatio
+  ---------------------------------------------------------------------------------
+       -866.12    0.23      2817    8.67             1.2          4.0           2.7
+       -866.87    0.23      2822    8.68             1.2          1.0           1.3
+      -1597.08    0.23      5073   15.99             1.6          1.0           1.3
+       -331.95    0.21      1049    3.33             0.8          4.0           2.7
+```
+
+Not one pass reached profit factor 1.0. The decisive detail is the per-trade figure:
+
+```
+MaxSpread 0.8  →  1050 trades  →  −332   →  −0.316 per trade
+MaxSpread 1.2  →  2817 trades  →  −866   →  −0.307 per trade
+MaxSpread 1.6  →  5073 trades  →  −1597  →  −0.315 per trade
+```
+
+**Expected payoff is a constant −0.31 per trade across every combination.** Filters
+change how many trades are taken; they never change what a trade is worth. That is
+the signature of pure transaction cost — the entry contributes no directional edge
+to offset the spread, so tightening filters only shrinks the loss toward zero.
+
+A strategy with a real edge shows variance across its parameter surface. This one
+shows a flat line.
+
+### What that means
+
+Arming a virtual buy stop and a virtual sell stop 2 pips either side of price is
+directionally random. The rebuilt risk structure removes the *guaranteed* loss the
+original had, but no parameter set can manufacture an edge that was never there.
+Making this profitable requires a real entry signal, which is a different piece of work.
+
+Raw optimization report: [`results/`](results/).
+
+> Caveat, stated because it matters: `MinAtrPips` at 1.0, 2.5 and 4.0 returned identical
+> results, so that filter never engaged — M1 gold ATR is always above 4 pips. It was not
+> genuinely tested. The conclusion holds regardless, since a filter that only reduces
+> trade count cannot lift a constant negative payoff above zero.
+
+---
+
 ## Install
 
 1. Copy `Snipe_FX_Pro.mq5` to `MQL5/Experts/`.
