@@ -30,6 +30,9 @@ input bool   UseBarAnchor         = false;  // Break a real level instead of a r
 input int    AnchorBars           = 3;      // Bars whose high/low form that level
 input int    AnchorTfIndex        = 0;      // 0=M1 1=M5 2=M15 3=M30 4=H1 (level timeframe)
 input int    TrendTfIndex         = -1;     // -1 = use TrendTimeframe, else 0=M1 1=M5 2=M15 3=M30 4=H1
+input bool   UseLimitEntry        = false;  // Wait for a pullback instead of buying the break
+input double PullbackPips         = 1.0;    // How far back from the trigger to wait
+input int    LimitValidSec        = 30;     // Give up on the pullback after this
 
 //--- Direction filter ------------------------------------------------
 input group "=== Direction filter ==="
@@ -96,6 +99,11 @@ int      atr_h          = INVALID_HANDLE;
 double   v_buy_price    = 0.0;
 double   v_sell_price   = 0.0;
 datetime v_place_time   = 0;
+
+bool     pullback_on   = false;
+bool     pullback_buy    = false;
+double   pullback_px     = 0.0;
+datetime pullback_until    = 0;
 
 ulong    current_ticket = 0;
 double   virtual_sl     = 0.0;
@@ -351,13 +359,47 @@ void CheckVirtualTrigger()
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
+   // A waiting pullback order takes priority over arming a new one.
+   if(pullback_on)
+   {
+      if(TimeCurrent() > pullback_until) { pullback_on = false; return; }
+
+      bool ready = pullback_buy ? (ask <= pullback_px) : (bid >= pullback_px);
+      if(ready)
+      {
+         pullback_on = false;
+         OpenTrade(pullback_buy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, pullback_px);
+      }
+      return;
+   }
+
    // ReverseEntry fades the break instead of following it. A 2 pip move on M1
    // gold is noise, and the tester shows the break-following version paying the
    // spread on every trade with nothing to offset it.
-   if(v_buy_price > 0.0 && ask >= v_buy_price)
-      OpenTrade(ReverseEntry ? ORDER_TYPE_SELL : ORDER_TYPE_BUY, v_buy_price);
-   else if(v_sell_price > 0.0 && bid <= v_sell_price)
-      OpenTrade(ReverseEntry ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, v_sell_price);
+   bool hit_up   = (v_buy_price  > 0.0 && ask >= v_buy_price);
+   bool hit_down = (v_sell_price > 0.0 && bid <= v_sell_price);
+   if(!hit_up && !hit_down) return;
+
+   bool want_buy = hit_up ? !ReverseEntry : ReverseEntry;
+
+   if(UseLimitEntry)
+   {
+      // Entering at market the instant price has moved takes the worst fill of
+      // the micro cycle, in both directions. Wait for price to come back to us.
+      double from  = hit_up ? v_buy_price : v_sell_price;
+      pullback_px  = want_buy ? from - PullbackPips * pip
+                              : from + PullbackPips * pip;
+      pullback_px  = NormalizeDouble(pullback_px, _Digits);
+      pullback_buy = want_buy;
+      pullback_until = TimeCurrent() + LimitValidSec;
+      pullback_on = true;
+      v_buy_price  = 0.0;
+      v_sell_price = 0.0;
+      return;
+   }
+
+   OpenTrade(want_buy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,
+             hit_up ? v_buy_price : v_sell_price);
 }
 
 //+------------------------------------------------------------------+
@@ -793,6 +835,7 @@ void ClearState()
    entry_price    = 0.0;
    current_ticket = 0;
    be_done        = false;
+   pullback_on   = false;
 
    GlobalVariableDel(gv_prefix + "sl");
    GlobalVariableDel(gv_prefix + "tp");

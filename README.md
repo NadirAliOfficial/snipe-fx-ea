@@ -1,8 +1,32 @@
 # Snipe FX Pro — MT5 Virtual Stealth Execution EA
 
 Rebuild of a tick scalping EA that used virtual (in memory) stop orders and virtual exits.
-The original logic was sound in structure but negative in expectancy. This version keeps the
-stealth execution model and fixes the risk math, the exit logic and the missing isolation.
+
+## Result
+
+Both EAs, same symbol, same two months, same 100% real tick data.
+
+| | original | rebuilt |
+|---|---|---|
+| **Win rate** | **72.63%** | 37.17% |
+| **Net profit** | **−9 961.20** | **+375.58** |
+| Profit factor | 0.61 | **1.14** |
+| Max equity drawdown | **99.61%** | **2.40%** |
+| Trades | 69 367 | 226 |
+| Average win / average loss | — | 36.08 / −18.70 |
+
+The original wins 72.63% of its trades and loses 99.61% of the account. That single
+line is the whole lesson: win rate is not profitability. The rebuild wins less than
+half as often and finishes ahead, because the average win is roughly twice the
+average loss instead of a fifth of it.
+
+Recommended settings: `Snipe_FX_Pro_recommended.set`.
+
+**Honest scope.** 226 trades over two months is modest evidence, and the settings were
+chosen partly on June data. Tested on July alone, which it had never seen, it comes out
+at profit factor 0.99 — flat, not profitable. Treat this as a system that has stopped
+destroying capital and shows a small edge, not as a proven money maker. Forward test on
+demo before risking anything.
 
 **File:** `Snipe_FX_Pro.mq5` — MT5 only (MQL5, build 2300+ for `input group`).
 

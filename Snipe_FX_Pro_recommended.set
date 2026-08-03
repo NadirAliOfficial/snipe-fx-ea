@@ -1,6 +1,9 @@
-UseAtrStop=0
-FixedStopPips=220
+UseLimitEntry=1
+PullbackPips=0.5
 RewardRatio=2.0
+LimitValidSec=30
+UseAtrStop=0
+FixedStopPips=180
 TrendTfIndex=1
 UseBarAnchor=0
 MaxSpreadPips=0.8
